@@ -21,13 +21,15 @@ Built with **Python + SQL** on **AWS** (S3, RDS MySQL, EC2, VPC, Security Groups
 | 5 Python preprocessing + DLQ + batch load | ✅ (75 tests; live run on EC2 → S3 + RDS) |
 | 6 SQL settlement + sliding-window fraud | ✅ (95/95 tests on RDS) |
 | 7 pytest suite | ✅ (109 tests on EC2/RDS — map in `tests/README.md`) |
-| 8 Streamlit dashboard (optional) | ⏳ |
+| 8 Streamlit dashboard (optional) | ✅ (6 tabs, upload & run, AppTest) |
 | 9–14 Deploy, integration, failure tests, security, polish, demo | ⏳ |
 
 ## Project structure
 
 ```text
 app/
+  dashboard.py      Streamlit UI over the SQL results          (Phase 8)
+  pipeline.py       command-line pipeline runner              (Phase 5)
   config.py         business rules (assumptions) + environment settings — one place
   preprocessing/    cleaning, validation, DLQ               (Phase 5)
   database/         MySQL connection + batch loader          (Phase 4–5)
@@ -84,6 +86,23 @@ Thresholds come from `app/config.py`. Results go to `data/processed/reports/` an
 Verified on the sample data: flagged **U9001** (6 in 8 min) and **U9004** (6 across a 10-minute clock
 boundary); not flagged **U9002** (exactly 5) and **U9003** (6 over 50 min). For comparison, fixed
 10-minute buckets would miss U9004, and a daily `GROUP BY` would wrongly flag U9003.
+
+## Dashboard (`app/dashboard.py`)
+
+```bash
+streamlit run app/dashboard.py
+```
+
+| Tab | Shows |
+|---|---|
+| Overview | loaded / settled / un-reconciled INR, fraud alert count, why rows were rejected |
+| Upload & run | upload a transactions CSV (rates optional) and run the same pipeline as the CLI |
+| Settlement | net payable per merchant, merchants with no rate held back, CSV download |
+| Fraud alerts | flagged users, the peak 10-minute window as evidence, fixed-bucket lines for comparison, what-if thresholds |
+| Dead-letter queue | rejected rows per run with the original values and reasons, CSV download |
+| Pipeline runs | audit trail of every run, including failures and their error |
+
+The dashboard contains no business logic: it only displays the SQL in `sql/` and calls `app/pipeline.py`.
 
 ## Data model (`sql/01_schema.sql`)
 

@@ -172,3 +172,16 @@ def test_cleaning_is_deterministic(sample):
     b = clean_transactions(read_csv(sample / "raw_payment_dump.csv", TXN_COLUMNS))
     for x, y in zip(a, b):
         pd.testing.assert_frame_equal(x, y)
+
+
+def test_rates_file_is_optional_existing_rates_are_kept(sample, tmp_path):
+    with mock.patch("app.database.connection.get_engine"), \
+         mock.patch("app.database.schema.apply_schema"), \
+         mock.patch.multiple("app.database.loader", start_run=mock.DEFAULT, finish_run=mock.DEFAULT,
+                             load_rates=mock.DEFAULT, load_dlq=mock.DEFAULT,
+                             load_transactions=mock.DEFAULT) as m:
+        m["load_transactions"].return_value = 1
+        out = pipeline.run(sample / "raw_payment_dump.csv", None, run_id="R4", processed_dir=tmp_path,
+                           dlq_dir=tmp_path / "d", s3_bucket="")
+    m["load_rates"].assert_not_called()
+    assert out["rates_valid"] == 0 and m["finish_run"].call_args.args[2] == "SUCCESS"

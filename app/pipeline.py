@@ -45,7 +45,7 @@ def new_run_id() -> str:
     return f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-{uuid.uuid4().hex[:6]}"
 
 
-def run(transactions: Path, rates: Path, use_db: bool = True, run_id: str | None = None,
+def run(transactions: Path, rates: Path | None, use_db: bool = True, run_id: str | None = None,
         processed_dir: Path | None = None, dlq_dir: Path | None = None,
         s3_bucket: str | None = None, engine=None) -> dict:
     # defaults are read at CALL time (not import time) so they can be overridden in tests
@@ -53,7 +53,8 @@ def run(transactions: Path, rates: Path, use_db: bool = True, run_id: str | None
     processed_dir = processed_dir or PROCESSED_DIR
     s3_bucket = S3_BUCKET if s3_bucket is None else s3_bucket
     dlq_kwargs = {"dlq_dir": dlq_dir} if dlq_dir else {}
-    log.info("run %s started: transactions=%s rates=%s", run_id, transactions.name, rates.name)
+    log.info("run %s started: transactions=%s rates=%s", run_id, transactions.name,
+             rates.name if rates else "(keep rates already loaded)")
 
     if use_db:
         from app.database import loader
@@ -65,8 +66,10 @@ def run(transactions: Path, rates: Path, use_db: bool = True, run_id: str | None
 
     try:
         # 1-3 read, validate, clean
-        raw_rates = read_csv(rates, RATE_COLUMNS)
-        good_rates, bad_rates = clean_rates(raw_rates)
+        if rates is not None:
+            good_rates, bad_rates = clean_rates(read_csv(rates, RATE_COLUMNS))
+        else:                                   # no new rates file: keep what is in the database
+            good_rates, bad_rates = clean_rates(pd.DataFrame(columns=["source_row", *RATE_COLUMNS]))
         raw_txn = read_csv(transactions, TXN_COLUMNS)
         clean, rejected, duplicates = clean_transactions(raw_txn)
         counts = {"read": len(raw_txn), "valid": len(clean), "rejected": len(rejected),
@@ -79,22 +82,24 @@ def run(transactions: Path, rates: Path, use_db: bool = True, run_id: str | None
         clean.to_csv(processed, index=False)
         dlq_all = rejected if duplicates.empty else pd.concat([rejected, duplicates], ignore_index=True)
         dlq_txn = write_dlq(dlq_all, run_id, transactions.name, **dlq_kwargs)
-        dlq_rate = write_dlq(bad_rates, run_id, rates.name, **dlq_kwargs)
+        dlq_rate = write_dlq(bad_rates, run_id, rates.name, **dlq_kwargs) if rates else None
 
         # 5 S3
         s3_keys = {}
         if s3_bucket:
             from app.storage.s3 import upload
-            s3_keys["raw"] = [upload(s3_bucket, p, "raw", run_id) for p in (transactions, rates)]
+            s3_keys["raw"] = [upload(s3_bucket, p, "raw", run_id) for p in (transactions, rates) if p]
             s3_keys["processed"] = upload(s3_bucket, processed, "processed", run_id)
             s3_keys["dlq"] = [upload(s3_bucket, p, "dlq", run_id) for p in (dlq_txn, dlq_rate) if p]
 
         # 6 MySQL
         if use_db:
-            loader.load_rates(engine, good_rates)
+            if len(good_rates):
+                loader.load_rates(engine, good_rates)
             counts["inserted"] = loader.load_transactions(engine, clean, run_id)
             loader.load_dlq(engine, dlq_all, run_id, transactions.name)
-            loader.load_dlq(engine, bad_rates, run_id, rates.name)
+            if len(bad_rates):
+                loader.load_dlq(engine, bad_rates, run_id, rates.name)
             loader.finish_run(engine, run_id, "SUCCESS", counts)
     except Exception as exc:
         log.error("run %s FAILED: %s: %s", run_id, type(exc).__name__, exc)

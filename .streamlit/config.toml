@@ -1,0 +1,10 @@
+[server]
+headless = true
+maxUploadSize = 50          # MB
+enableXsrfProtection = true
+
+[browser]
+gatherUsageStats = false
+
+[client]
+toolbarMode = "viewer"      # hide developer menu / Deploy button
