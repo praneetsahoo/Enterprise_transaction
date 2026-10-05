@@ -134,6 +134,9 @@ tab_overview, tab_upload, tab_settle, tab_fraud, tab_dlq, tab_runs = st.tabs(
 # ---------------------------------------------------------------- Overview
 
 with tab_overview:
+    st.caption("How this works: every uploaded row is validated in Python (UTC time, INR conversion, 10 rules); "
+               "valid rows are loaded once (txn_ref_no is the primary key), rejected rows go to the dead-letter "
+               "queue with a reason, and the figures below are computed by SQL in MySQL.")
     recon = report("reconciliation")
     if recon.empty:
         st.info("No transactions loaded yet. Use **Upload & run**.")
@@ -206,6 +209,8 @@ with tab_upload:
 
 with tab_settle:
     st.subheader("Merchant settlement — net = amount − amount × commission_pct (SUCCESS only)")
+    st.caption("How this works: SQL joins successful transactions to merchant_rates on merchant_id (LEFT JOIN, so a "
+               "merchant without a rate is shown and held, never dropped). Commission is rounded per transaction.")
     settle = as_float(report("settlement"), "gross_inr", "commission_inr", "net_settlement_inr", "commission_pct")
     if settle.empty:
         st.info("Nothing to settle yet.")
@@ -237,6 +242,9 @@ with tab_fraud:
     st.subheader("Fraud telemetry — genuine sliding window")
     st.write(f"Rule: more than **{FRAUD_MAX_FAILURES} {FRAUD_STATUS}** transactions by one user inside "
              f"**any {FRAUD_WINDOW_MINUTES}-minute window** (`RANGE BETWEEN INTERVAL … PRECEDING`, not fixed buckets).")
+    st.caption("How this works: for every failed payment, SQL counts the same user's failures in the 10 minutes "
+               "ending at it; the busiest window always ends on a failure, so every possible window is checked. "
+               "A second query (self-join) must agree on every report run.")
     with st.expander("What-if: change the thresholds (does not change the official rule in config)"):
         w = st.slider("Window (minutes)", 1, 60, FRAUD_WINDOW_MINUTES)
         m = st.slider("Flag when failures are more than", 1, 20, FRAUD_MAX_FAILURES)
@@ -275,6 +283,8 @@ with tab_fraud:
 
 with tab_dlq:
     st.subheader("Dead-letter queue — rejected rows with the original record")
+    st.caption("How this works: nothing is silently dropped. Each rejected row keeps its exact original values and "
+               "every reason; copies are also kept in S3 (dlq/) and in the data/dlq folder.")
     if runs.empty:
         st.info("No runs yet.")
     else:
