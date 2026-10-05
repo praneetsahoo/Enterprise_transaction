@@ -111,8 +111,8 @@ python -m app.database.schema     # create missing tables (safe to re-run)
 | A2 | `commission_pct` is a fraction (0.02 = 2%); values above 1 are read as a percentage |
 | A3 | Only `SUCCESS` transactions are settled to merchants |
 | A4 | Fraud counts `FAILED` transactions; `PENDING`/`TIMEOUT` are reported as un-reconciled |
-| A6 | The 10-minute fraud window includes both ends (failures at 10:00 and 10:10 are in one window) |
 | A5 | If a `txn_ref_no` repeats, the first record is kept; later copies are logged, not loaded |
+| A6 | The 10-minute fraud window includes both ends (failures at 10:00 and 10:10 are in one window) |
 | — | Currency is converted with a fixed dictionary (no external API) |
 
 ## Quick start (local)
