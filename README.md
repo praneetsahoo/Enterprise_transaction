@@ -25,7 +25,8 @@ Built with **Python + SQL** on **AWS** (S3, RDS MySQL, EC2, VPC, Security Groups
 | 7 pytest suite | ✅ (109 tests on EC2/RDS — map in `tests/README.md`) |
 | 8 Streamlit dashboard — the working product | ✅ (6 tabs, upload & run, AppTest) |
 | 9 Deploy on EC2 | ✅ (systemd + CloudWatch agent; alarm fired on a real ERROR; survives reboot) |
-| 10–14 Integration, failure tests, security, polish, demo | ⏳ |
+| 10 End-to-end integration | ✅ (14/14 on AWS for 2 fresh batches + a user upload via the public dashboard) |
+| 11–14 Failure tests, security, polish, demo | ⏳ |
 
 ## Project structure
 
@@ -131,6 +132,23 @@ DB_HOST=<rds endpoint> S3_BUCKET=<bucket> bash /opt/payrecon/app/infra/deploy.sh
 # status / logs
 systemctl status payrecon-dashboard ; tail -f /var/log/payrecon/pipeline.log
 ```
+
+## End-to-end check (`scripts/e2e_check.py`)
+
+Runs a FRESH batch through the real deployed path, nothing mocked:
+S3 landing → pipeline reads from S3 → clean + DLQ → RDS → audit row → S3 copies → SQL reports →
+dashboard → same file again (must insert 0). Expected numbers come from what the generator planted,
+and 25 loaded rows are re-derived independently from the raw file.
+
+```bash
+sudo runuser -u payrecon -- env $(cat /etc/payrecon/payrecon.env | xargs) HOME=/var/lib/payrecon \
+    /opt/payrecon/venv/bin/python scripts/e2e_check.py --batch E      # any letter not used yet
+```
+
+Verified on AWS: batches C and D 14/14 each; batch B uploaded by a person through the public
+dashboard matched the predicted counts exactly; all runs found in CloudWatch; database total
+3,513 rows = sum of `rows_inserted` over all successful runs; window and self-join fraud queries
+agree on 8 users (2 planted per batch).
 
 ## Data model (`sql/01_schema.sql`)
 
