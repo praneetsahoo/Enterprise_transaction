@@ -19,7 +19,7 @@ Built with **Python + SQL** on **AWS** (S3, RDS MySQL, EC2, VPC, Security Groups
 | 3 AWS infrastructure | ✅ (8/8 live connectivity checks — see `infra/README.md`) |
 | 4 Data layer (MySQL) | ✅ (16/16 tests on RDS MySQL 8.4) |
 | 5 Python preprocessing + DLQ + batch load | ✅ (75 tests; live run on EC2 → S3 + RDS) |
-| 6 SQL settlement + sliding-window fraud | ⏳ |
+| 6 SQL settlement + sliding-window fraud | ✅ (95/95 tests on RDS) |
 | 7 pytest suite | ⏳ |
 | 8 Streamlit dashboard (optional) | ⏳ |
 | 9–14 Deploy, integration, failure tests, security, polish, demo | ⏳ |
@@ -70,6 +70,21 @@ in S3 `dlq/<run_id>/`, and in the `dlq_records` table.
 Sample run (seed 42): **2,053 read → 1,923 loaded, 100 rejected, 30 duplicates**. Running the
 same file again inserts **0** rows.
 
+## SQL analytics (`sql/02`–`05`, run by `python -m app.analytics.reports`)
+
+| File | Answers |
+|---|---|
+| `02_settlement.sql` | Per merchant: SUCCESS gross, commission (`amount × commission_pct`, rounded per transaction), **net = amount − amount × commission_pct**. `LEFT JOIN` on `merchant_id`, so a merchant without a rate is shown as `RATE_MISSING` with no payout |
+| `03_fraud_sliding_window.sql` | Users with **more than 5 FAILED in any 10-minute window**: `COUNT(*) OVER (PARTITION BY user_id ORDER BY created_at_utc RANGE BETWEEN INTERVAL 10 MINUTE PRECEDING AND CURRENT ROW)`, with the peak window's start/end |
+| `04_fraud_selfjoin_check.sql` | Same rule written as a self-join (no window functions); the report fails if the two disagree |
+| `05_reconciliation_summary.sql` | Count and INR by status; PENDING / TIMEOUT = un-reconciled |
+
+Thresholds come from `app/config.py`. Results go to `data/processed/reports/` and S3 `processed/reports/`.
+
+Verified on the sample data: flagged **U9001** (6 in 8 min) and **U9004** (6 across a 10-minute clock
+boundary); not flagged **U9002** (exactly 5) and **U9003** (6 over 50 min). For comparison, fixed
+10-minute buckets would miss U9004, and a daily `GROUP BY` would wrongly flag U9003.
+
 ## Data model (`sql/01_schema.sql`)
 
 | Table | Key | Purpose |
@@ -96,6 +111,7 @@ python -m app.database.schema     # create missing tables (safe to re-run)
 | A2 | `commission_pct` is a fraction (0.02 = 2%); values above 1 are read as a percentage |
 | A3 | Only `SUCCESS` transactions are settled to merchants |
 | A4 | Fraud counts `FAILED` transactions; `PENDING`/`TIMEOUT` are reported as un-reconciled |
+| A6 | The 10-minute fraud window includes both ends (failures at 10:00 and 10:10 are in one window) |
 | A5 | If a `txn_ref_no` repeats, the first record is kept; later copies are logged, not loaded |
 | — | Currency is converted with a fixed dictionary (no external API) |
 
