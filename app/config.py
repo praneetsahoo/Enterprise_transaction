@@ -86,7 +86,7 @@ def database_url():
     from sqlalchemy.engine import URL
 
     password = boto3.client("ssm", region_name=AWS_REGION).get_parameter(
-        Name=os.environ["DB_PASSWORD_PARAM"], WithDecryption=True)["Parameter"]["Value"]
+        Name=os.getenv("DB_PASSWORD_PARAM", "/payrecon/db/app_password"), WithDecryption=True)["Parameter"]["Value"]
     return URL.create(
         "mysql+pymysql",
         username=os.getenv("DB_USER", "payrecon_app"),
