@@ -129,7 +129,7 @@ def test_window_query_matches_selfjoin_and_brute_force_on_random_data(conn):
     events: dict[str, list[float]] = {}
     for u in range(60):
         user = f"PYT_R{u:02d}"
-        events[user] = sorted(round(rng.uniform(0, 90), 2) for _ in range(rng.randint(3, 14)))
+        events[user] = sorted(round(rng.uniform(0, 30), 2) for _ in range(rng.randint(3, 14)))
         for m in events[user]:
             add_txn(conn, user, m)
 
