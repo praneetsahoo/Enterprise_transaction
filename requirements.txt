@@ -1,0 +1,5 @@
+pandas>=2.2
+sqlalchemy>=2.0
+pymysql>=1.1
+cryptography>=42
+boto3>=1.34

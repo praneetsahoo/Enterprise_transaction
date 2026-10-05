@@ -1,0 +1,29 @@
+# ---- Secrets: never commit ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*
+
+# ---- Data: financial records are not stored in git ----
+# (sample files are regenerated deterministically by scripts/generate_sample_data.py)
+data/raw/*
+data/processed/*
+data/dlq/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/dlq/.gitkeep
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+# ---- OS / editors ----
+.DS_Store
+.vscode/
+.idea/
