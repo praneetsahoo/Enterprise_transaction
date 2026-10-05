@@ -16,7 +16,7 @@ Built with **Python + SQL** on **AWS** (S3, RDS MySQL, EC2, VPC, Security Groups
 | 0 Problem analysis | ✅ |
 | 1 Architecture & technical design | ✅ |
 | 2 Project foundation | ✅ |
-| 3 AWS infrastructure | ⏳ |
+| 3 AWS infrastructure | ✅ (8/8 live connectivity checks — see `infra/README.md`) |
 | 4 Data layer (MySQL) | ⏳ |
 | 5 Python preprocessing + DLQ + batch load | ⏳ |
 | 6 SQL settlement + sliding-window fraud | ⏳ |

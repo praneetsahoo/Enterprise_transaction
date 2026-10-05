@@ -64,6 +64,20 @@ Regional services:
 | `infra/bootstrap_db.py` | EC2, once | Creates the least-privilege `payrecon_app` user |
 | `infra/check_connectivity.py` | EC2 | 8 checks: SSM, RDS TLS, no-TLS refused, private IP, S3 allow/deny, CloudWatch |
 
+## Verified (Phase 3, run on EC2 via SSM Run Command)
+
+```text
+[PASS] SSM: app DB password readable by the instance role (value not printed)
+[PASS] RDS: connected as payrecon_app@% over TLS (TLS_AES_256_GCM_SHA384), MySQL 8.4.11
+[PASS] RDS: time-based sliding window (RANGE ... INTERVAL 10 MINUTE) works -> [1, 2, 1]
+[PASS] RDS: connection without TLS refused (MySQL error 1045)
+[PASS] RDS: endpoint resolves to private address 10.30.12.180
+[PASS] S3: write + read in raw/ works
+[PASS] S3: write outside raw/processed/dlq is denied
+[PASS] CloudWatch: wrote to /payrecon/pipeline
+8/8 checks passed
+```
+
 ## Teardown order (when the hackathon is over)
 EC2 → RDS → SSM parameters → empty & delete the versioned bucket → IAM role + instance profile
 → CloudWatch alarm + log group → DB subnet group → security groups → subnets/route tables → IGW → VPC
