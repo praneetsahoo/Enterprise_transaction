@@ -18,7 +18,7 @@ Built with **Python + SQL** on **AWS** (S3, RDS MySQL, EC2, VPC, Security Groups
 | 2 Project foundation | ✅ |
 | 3 AWS infrastructure | ✅ (8/8 live connectivity checks — see `infra/README.md`) |
 | 4 Data layer (MySQL) | ✅ (16/16 tests on RDS MySQL 8.4) |
-| 5 Python preprocessing + DLQ + batch load | ⏳ |
+| 5 Python preprocessing + DLQ + batch load | ✅ (75 tests; live run on EC2 → S3 + RDS) |
 | 6 SQL settlement + sliding-window fraud | ⏳ |
 | 7 pytest suite | ⏳ |
 | 8 Streamlit dashboard (optional) | ⏳ |
@@ -42,6 +42,33 @@ scripts/
   generate_sample_data.py   deterministic messy sample data with planted fraud cases
 tests/              pytest
 ```
+
+## Cleaning pipeline (`app/pipeline.py`)
+
+```bash
+python scripts/generate_sample_data.py
+python -m app.pipeline --no-db     # clean + DLQ files only
+python -m app.pipeline             # + S3 copy (if S3_BUCKET set) + MySQL batch load
+```
+
+| Step | Rule | Rejection code (DLQ) |
+|---|---|---|
+| Read | every value read as text; required columns checked | whole run FAILED if a column is missing |
+| IDs | `txn_ref_no`, `user_id`, `merchant_id` trimmed, required, length-checked | `MISSING_TXN_REF`, `MISSING_USER_ID`, `MISSING_MERCHANT_ID`, `*_TOO_LONG` |
+| Amount | `1,250.50` accepted; must be a finite number, > 0, ≤ 100 crore | `AMOUNT_NOT_NUMERIC`, `AMOUNT_NOT_POSITIVE`, `AMOUNT_OUT_OF_RANGE` |
+| Currency | `₹ / Rs / Rs. / inr` → `INR`, `$ / US$` → `USD` … fixed dictionary | `UNKNOWN_CURRENCY` |
+| INR | `amount × FX_TO_INR`, rounded half-up to the paisa; original amount + rate kept | — |
+| Timestamp | epoch s/ms, ISO `Z`/offset, zone-less `YYYY-MM-DD` / `DD/MM/YYYY` (= IST) → UTC | `BAD_TIMESTAMP` (incl. 31/02, years outside 2000–2100) |
+| Status | case-insensitive; SUCCESS / FAILED / PENDING / TIMEOUT | `UNKNOWN_STATUS` |
+| Duplicates | first valid copy of a `txn_ref_no` wins (A5) | `DUPLICATE_TXN_REF_EXACT`, `DUPLICATE_TXN_REF_CONFLICT` |
+| Rates | `2.5` → `0.025`; negative / ≥ 100% / repeated merchant rejected | `BAD_COMMISSION`, `DUPLICATE_MERCHANT_ID` |
+
+A row gets **every** reason that applies (joined by `|`). Rows read = valid + rejected + duplicate,
+checked on every run. Rejected rows keep their original text in `data/dlq/<run_id>__<file>__rejected.csv`,
+in S3 `dlq/<run_id>/`, and in the `dlq_records` table.
+
+Sample run (seed 42): **2,053 read → 1,923 loaded, 100 rejected, 30 duplicates**. Running the
+same file again inserts **0** rows.
 
 ## Data model (`sql/01_schema.sql`)
 
