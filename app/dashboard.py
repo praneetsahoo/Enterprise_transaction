@@ -7,7 +7,9 @@ Read-only views over MySQL, plus one action: upload a file and run the SAME pipe
 """
 from __future__ import annotations
 
+import hmac
 import json
+import logging
 import sys
 import tempfile
 from pathlib import Path
@@ -20,11 +22,23 @@ import streamlit as st  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
 from app.analytics.reports import run_report  # noqa: E402
-from app.config import FRAUD_MAX_FAILURES, FRAUD_STATUS, FRAUD_WINDOW_MINUTES  # noqa: E402
+from app.config import (FRAUD_MAX_FAILURES, FRAUD_STATUS, FRAUD_WINDOW_MINUTES,  # noqa: E402
+                        dashboard_password)
 from app.database.connection import get_engine  # noqa: E402
 from app.preprocessing.cleaning import TXN_COLUMNS  # noqa: E402
 
 st.set_page_config(page_title="PayRecon", page_icon="💳", layout="wide")
+
+
+@st.cache_resource
+def _logging_ready() -> bool:
+    from app.pipeline import setup_logging
+
+    setup_logging()                     # stdout + LOG_FILE (shipped to CloudWatch on EC2)
+    return True
+
+
+_logging_ready()
 
 
 # ---------------------------------------------------------------- data access (cached 60 s)
@@ -53,6 +67,26 @@ def as_float(df: pd.DataFrame, *cols: str) -> pd.DataFrame:
         out[c] = pd.to_numeric(out[c], errors="coerce")
     return out
 
+
+# ---------------------------------------------------------------- login (only when a password is configured)
+
+def require_login() -> None:
+    expected = dashboard_password()
+    if not expected or st.session_state.get("authenticated"):
+        return
+    st.title("PayRecon")
+    with st.form("login"):
+        given = st.text_input("Password", type="password")
+        if st.form_submit_button("Sign in"):
+            if hmac.compare_digest(given.encode(), expected.encode()):     # constant-time comparison
+                st.session_state["authenticated"] = True
+                st.rerun()
+            logging.getLogger("payrecon.dashboard").warning("dashboard: failed sign-in")
+            st.error("Wrong password.")
+    st.stop()
+
+
+require_login()
 
 # ---------------------------------------------------------------- header + connection check
 

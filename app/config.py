@@ -97,3 +97,20 @@ def database_url():
         database=os.getenv("DB_NAME", "payrecon"),
         query={"ssl_ca": os.getenv("DB_SSL_CA", "/opt/payrecon/rds-ca.pem")},
     )
+
+
+@lru_cache
+def dashboard_password() -> str | None:
+    """Password for the Streamlit dashboard, or None = no login (local development).
+
+    On AWS: DASHBOARD_PASSWORD_PARAM names an SSM SecureString (read with the EC2 role).
+    DASHBOARD_PASSWORD may be set directly for local testing only.
+    """
+    if os.getenv("DASHBOARD_PASSWORD"):
+        return os.environ["DASHBOARD_PASSWORD"]
+    if not os.getenv("DASHBOARD_PASSWORD_PARAM"):
+        return None
+    import boto3
+
+    return boto3.client("ssm", region_name=AWS_REGION).get_parameter(
+        Name=os.environ["DASHBOARD_PASSWORD_PARAM"], WithDecryption=True)["Parameter"]["Value"]

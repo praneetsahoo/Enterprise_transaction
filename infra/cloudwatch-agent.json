@@ -1,0 +1,22 @@
+{
+  "agent": { "run_as_user": "root" },
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {
+            "file_path": "/var/log/payrecon/pipeline.log",
+            "log_group_name": "/payrecon/pipeline",
+            "log_stream_name": "{instance_id}/pipeline",
+            "timestamp_format": "%Y-%m-%d %H:%M:%S"
+          },
+          {
+            "file_path": "/var/log/payrecon/dashboard.log",
+            "log_group_name": "/payrecon/dashboard",
+            "log_stream_name": "{instance_id}/dashboard"
+          }
+        ]
+      }
+    }
+  }
+}
