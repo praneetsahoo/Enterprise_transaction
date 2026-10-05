@@ -22,7 +22,8 @@ Built with **Python + SQL** on **AWS** (S3, RDS MySQL, EC2, VPC, Security Groups
 | 6 SQL settlement + sliding-window fraud | ✅ (95/95 tests on RDS) |
 | 7 pytest suite | ✅ (109 tests on EC2/RDS — map in `tests/README.md`) |
 | 8 Streamlit dashboard (optional) | ✅ (6 tabs, upload & run, AppTest) |
-| 9–14 Deploy, integration, failure tests, security, polish, demo | ⏳ |
+| 9 Deploy on EC2 | ✅ (systemd + CloudWatch agent; alarm fired on a real ERROR; survives reboot) |
+| 10–14 Integration, failure tests, security, polish, demo | ⏳ |
 
 ## Project structure
 
@@ -103,6 +104,31 @@ streamlit run app/dashboard.py
 | Pipeline runs | audit trail of every run, including failures and their error |
 
 The dashboard contains no business logic: it only displays the SQL in `sql/` and calls `app/pipeline.py`.
+
+## Deployment (EC2)
+
+```text
+http://<EC2 public IP>/          dashboard (login; password in SSM /payrecon/dashboard/password)
+```
+
+| Piece | Where |
+|---|---|
+| Code + virtualenv | `/opt/payrecon/app`, `/opt/payrecon/venv` |
+| Settings (no secrets) | `/etc/payrecon/payrecon.env` (root:payrecon, 0640) |
+| Dashboard service | `payrecon-dashboard.service` — user `payrecon` (no shell), port 80 via `CAP_NET_BIND_SERVICE`, restarts on failure, starts at boot |
+| Logs | `/var/log/payrecon/pipeline.log` → CloudWatch `/payrecon/pipeline` (metric filter `ERROR` → alarm `payrecon-pipeline-errors`); `dashboard.log` → `/payrecon/dashboard` |
+
+Runbook (all via SSM Run Command — no SSH):
+
+```bash
+# deploy / update after a git push (idempotent)
+DB_HOST=<rds endpoint> S3_BUCKET=<bucket> bash /opt/payrecon/app/infra/deploy.sh
+# run the pipeline + refresh reports on the server
+/opt/payrecon/app/infra/run_pipeline.sh                                   # sample files
+/opt/payrecon/app/infra/run_pipeline.sh --s3-transactions raw/<run>/file.csv
+# status / logs
+systemctl status payrecon-dashboard ; tail -f /var/log/payrecon/pipeline.log
+```
 
 ## Data model (`sql/01_schema.sql`)
 
