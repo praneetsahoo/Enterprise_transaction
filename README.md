@@ -75,7 +75,7 @@ On AWS everything is deployed with one command: `infra/deploy.sh` (see [Deployme
 | 11 Failure tests | ✅ (17 failure tests + 8 live drills on AWS; found and fixed 6 gaps) |
 | 12 Security review | ✅ (see `SECURITY.md`) |
 | 13 Polish | ✅ |
-| 14 Demo validation | ⏳ |
+| 14 Demo validation | ✅ (script numbers checked against the live dashboard) |
 
 ## Project structure
 

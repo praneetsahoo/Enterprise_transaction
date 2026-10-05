@@ -1,5 +1,7 @@
 # PayRecon — 4-minute demo script
 
+**Verified against the live dashboard on 5 Oct 2026 (numbers grow if new files are loaded).**
+
 **Before you start (1 min, off-camera):** open http://3.107.194.103 and sign in. In a second browser tab keep
 the GitHub repo open. Have these files on your desktop: `payments_batch_2.csv` (already loaded) and
 `merchant_rates_batch_2.csv` (a rates file, used to show a wrong-file upload).
@@ -11,8 +13,8 @@ the GitHub repo open. Have these files on your desktop: `payments_batch_2.csv` (
 > commission, and detect users with more than 5 failed payments in **any** 10-minute window. Everything you
 > see runs on AWS: S3, EC2, a private RDS MySQL, IAM and CloudWatch."
 
-Point at the top row: **3,513 transactions loaded · ₹72,31,420.42 settled · ₹7,08,347.08 un-reconciled
-(PENDING/TIMEOUT) · 8 fraud alerts.**
+Point at the top row: **3,513 transactions loaded · ₹7,231,420.42 settled · ₹708,347.08 un-reconciled
+(PENDING/TIMEOUT) · 8 fraud alerts** (≈ ₹72.3 lakh / ₹7.1 lakh).
 
 ### 0:20 — How a file flows (30 s) · *Overview chart*
 > "Each row is validated in Python: timestamps to UTC, ₹/Rs./$ normalised and converted to INR with a fixed
@@ -43,7 +45,8 @@ Select **U9004** in *Show the evidence*.
 
 ### 2:55 — Settlement (25 s) · *Settlement*
 > "Net payable = amount − amount × commission, joined on merchant_id, successful payments only, commission
-> rounded per transaction. ₹72.3 lakh gross, ₹1.41 lakh commission, **₹70.9 lakh payable** across 41 merchants.
+> rounded per transaction. Gross ₹7,231,420.42, commission ₹141,311.44, **net payable ₹7,090,108.98** (≈ ₹70.9 lakh)
+> across 41 merchants.
 > A merchant with no rate would be flagged and held, not silently dropped — that's why it's a LEFT JOIN."
 
 ### 3:20 — Audit trail (25 s) · *Dead-letter queue*, then *Pipeline runs*
