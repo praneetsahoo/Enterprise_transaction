@@ -17,7 +17,7 @@ Built with **Python + SQL** on **AWS** (S3, RDS MySQL, EC2, VPC, Security Groups
 | 1 Architecture & technical design | ✅ |
 | 2 Project foundation | ✅ |
 | 3 AWS infrastructure | ✅ (8/8 live connectivity checks — see `infra/README.md`) |
-| 4 Data layer (MySQL) | ⏳ |
+| 4 Data layer (MySQL) | ✅ (16/16 tests on RDS MySQL 8.4) |
 | 5 Python preprocessing + DLQ + batch load | ⏳ |
 | 6 SQL settlement + sliding-window fraud | ⏳ |
 | 7 pytest suite | ⏳ |
@@ -41,6 +41,24 @@ sql/                schema and analytics SQL                  (Phase 4, 6)
 scripts/
   generate_sample_data.py   deterministic messy sample data with planted fraud cases
 tests/              pytest
+```
+
+## Data model (`sql/01_schema.sql`)
+
+| Table | Key | Purpose |
+|---|---|---|
+| `merchant_rates` | `merchant_id` | Commission per merchant (fraction, CHECK 0 ≤ rate < 1) |
+| `stg_transactions` | **`txn_ref_no`** | Cleaned transactions. The primary key makes double counting impossible |
+| `dlq_records` | `dlq_id` | Every rejected row: original record (JSON) + reason codes |
+| `pipeline_runs` | `run_id` | One row per run: rows read / valid / rejected / duplicate / inserted, status |
+
+* Money is `DECIMAL`, never `FLOAT`. Times are stored in UTC.
+* `idx_fraud (gateway_status, user_id, created_at_utc)` covers the sliding-window fraud query.
+* CHECK constraints (amount > 0, valid status) are a last line of defence behind the Python validation.
+* The schema is `CREATE TABLE IF NOT EXISTS` only; `app/database/schema.py` refuses DROP / TRUNCATE / DELETE.
+
+```bash
+python -m app.database.schema     # create missing tables (safe to re-run)
 ```
 
 ## Business rules (hackathon assumptions — all in `app/config.py`)
