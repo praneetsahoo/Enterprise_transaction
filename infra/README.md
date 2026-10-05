@@ -83,5 +83,5 @@ Regional services:
 ```
 
 ## Teardown order (when the hackathon is over)
-EC2 → RDS → SSM parameters → empty & delete the versioned bucket → IAM role + instance profile
+EC2 → RDS (turn deletion protection off first) → SSM parameters → empty & delete the versioned bucket → IAM role + instance profile
 → CloudWatch alarm + log group → DB subnet group → security groups → subnets/route tables → IGW → VPC

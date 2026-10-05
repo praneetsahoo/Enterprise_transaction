@@ -27,7 +27,8 @@ Built with **Python + SQL** on **AWS** (S3, RDS MySQL, EC2, VPC, Security Groups
 | 9 Deploy on EC2 | ✅ (systemd + CloudWatch agent; alarm fired on a real ERROR; survives reboot) |
 | 10 End-to-end integration | ✅ (14/14 on AWS for 2 fresh batches + a user upload via the public dashboard) |
 | 11 Failure tests | ✅ (17 failure tests + 8 live drills on AWS; found and fixed 6 gaps) |
-| 12–14 Security review, polish, demo | ⏳ |
+| 12 Security review | ✅ (see `SECURITY.md`) |
+| 13–14 Polish, demo | ⏳ |
 
 ## Project structure
 
