@@ -22,6 +22,20 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip)
 
 
+@pytest.fixture(scope="session", autouse=True)
+def tests_do_not_write_into_project_data():
+    """Guard: tests must use tmp_path, never the real data/ folders."""
+    from app.config import DATA_DIR
+
+    def snapshot():
+        return {p for p in DATA_DIR.rglob("*") if p.is_file()}
+
+    before = snapshot()
+    yield
+    leaked = snapshot() - before
+    assert not leaked, f"tests wrote into the project data folder: {sorted(map(str, leaked))}"
+
+
 @pytest.fixture(scope="session")
 def engine():
     from app.database.connection import get_engine

@@ -46,9 +46,12 @@ def new_run_id() -> str:
 
 
 def run(transactions: Path, rates: Path, use_db: bool = True, run_id: str | None = None,
-        processed_dir: Path = PROCESSED_DIR, dlq_dir: Path | None = None,
-        s3_bucket: str = S3_BUCKET, engine=None) -> dict:
+        processed_dir: Path | None = None, dlq_dir: Path | None = None,
+        s3_bucket: str | None = None, engine=None) -> dict:
+    # defaults are read at CALL time (not import time) so they can be overridden in tests
     run_id = run_id or new_run_id()
+    processed_dir = processed_dir or PROCESSED_DIR
+    s3_bucket = S3_BUCKET if s3_bucket is None else s3_bucket
     dlq_kwargs = {"dlq_dir": dlq_dir} if dlq_dir else {}
     log.info("run %s started: transactions=%s rates=%s", run_id, transactions.name, rates.name)
 

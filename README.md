@@ -20,7 +20,7 @@ Built with **Python + SQL** on **AWS** (S3, RDS MySQL, EC2, VPC, Security Groups
 | 4 Data layer (MySQL) | ✅ (16/16 tests on RDS MySQL 8.4) |
 | 5 Python preprocessing + DLQ + batch load | ✅ (75 tests; live run on EC2 → S3 + RDS) |
 | 6 SQL settlement + sliding-window fraud | ✅ (95/95 tests on RDS) |
-| 7 pytest suite | ⏳ |
+| 7 pytest suite | ✅ (109 tests on EC2/RDS — map in `tests/README.md`) |
 | 8 Streamlit dashboard (optional) | ⏳ |
 | 9–14 Deploy, integration, failure tests, security, polish, demo | ⏳ |
 

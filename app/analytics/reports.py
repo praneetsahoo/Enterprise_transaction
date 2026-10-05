@@ -54,7 +54,9 @@ def fraud_users(conn, **overrides) -> tuple[list[str], list[str]]:
     return sorted(window), sorted(check)
 
 
-def run_all(engine, out_dir: Path = PROCESSED_DIR / "reports", s3_bucket: str = S3_BUCKET) -> dict:
+def run_all(engine, out_dir: Path | None = None, s3_bucket: str | None = None) -> dict:
+    out_dir = out_dir or PROCESSED_DIR / "reports"
+    s3_bucket = S3_BUCKET if s3_bucket is None else s3_bucket
     stamp = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}"
     with engine.connect() as conn:
         frames = {name: run_report(conn, name) for name in REPORTS}

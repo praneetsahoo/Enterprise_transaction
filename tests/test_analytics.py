@@ -176,3 +176,33 @@ def test_reconciliation_summary_marks_pending_and_timeout_unreconciled(conn):
                           "PENDING": "UNRECONCILED", "TIMEOUT": "UNRECONCILED"}.items():
         if status in df.index:
             assert df.loc[status, "reconciliation_state"] == state
+
+
+# ---------------------------------------------------------------- report runner
+
+def test_report_runner_fails_loudly_if_the_two_fraud_methods_disagree(tmp_path, caplog):
+    from unittest import mock
+
+    import pandas as pd
+
+    from app.analytics import reports
+
+    def fake(conn, name, **_):
+        users = {"fraud_alerts": ["U1", "U2"], "fraud_crosscheck": ["U1"]}.get(name, [])
+        return pd.DataFrame({"user_id": users})
+
+    engine = mock.MagicMock()
+    with mock.patch.object(reports, "run_report", side_effect=fake), pytest.raises(RuntimeError, match="mismatch"):
+        reports.run_all(engine, out_dir=tmp_path, s3_bucket="")
+    assert any(r.levelname == "ERROR" and "MISMATCH" in r.message for r in caplog.records)
+    assert not list(tmp_path.iterdir())                           # no report files written
+
+
+@live
+def test_report_runner_end_to_end(engine, tmp_path):
+    from app.analytics.reports import run_all
+
+    out = run_all(engine, out_dir=tmp_path, s3_bucket="")
+    assert sorted(p.name.split("__")[1] for p in tmp_path.iterdir()) == \
+        ["fraud_alerts.csv", "reconciliation.csv", "settlement.csv"]
+    assert out["fraud_users"] == sorted(out["frames"]["fraud_crosscheck"]["user_id"])

@@ -1,3 +1,4 @@
 -r requirements.txt
 pytest>=8
 moto[s3]>=5
+pytest-cov>=5
