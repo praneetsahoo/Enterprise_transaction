@@ -1,15 +1,61 @@
 # PayRecon — Enterprise Transaction Reconciliation & Fraud Telemetry
 
-Batch pipeline **and Streamlit dashboard** for UPI / merchant-settlement transaction dumps.
-Upload a raw dump in the dashboard and see the cleaned result, rejected rows, merchant
-settlement and fraud alerts:
+**Upload a messy payment dump → get clean data, a dead-letter queue of rejected rows, merchant
+settlement and fraud alerts.** Python + SQL on AWS, with a Streamlit dashboard as the working product.
+
+**Live:** http://3.107.194.103 (password protected) · **Demo script:** [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) ·
+**Q&A:** [`docs/QA.md`](docs/QA.md) · **Security:** [`SECURITY.md`](SECURITY.md)
+
+## What it does
+
+| Requirement | How |
+|---|---|
+| Standardise timestamps to UTC | 6 formats (ISO, offset, epoch s/ms, DD/MM/YYYY…); no time zone = IST |
+| Normalise currency, convert to INR | `₹ / Rs. / $ / €…` → ISO code → fixed rate table (no API) |
+| Flag `amount <= 0`, missing `txn_ref_no` (+ 8 more rules) | invalid rows → **DLQ** with the original record and every reason |
+| Load into MySQL without double counting | batch insert, `txn_ref_no` **PRIMARY KEY**, one transaction per run |
+| Merchant settlement | `amount − amount × commission_pct`, `LEFT JOIN` on `merchant_id`, SUCCESS only |
+| Fraud: > 5 FAILED in **any** 10 minutes | MySQL 8 window `RANGE BETWEEN INTERVAL 10 MINUTE PRECEDING` + self-join cross-check |
+
+## Architecture
 
 ```text
-RAW CSV → S3 → Python cleaning (UTC, INR, validation) → DLQ + clean data → RDS MySQL
-        → SQL merchant settlement  +  SQL fraud telemetry (10-minute sliding window)
+            Browser ──HTTP:80 (login)──►┌──────────── VPC 10.30.0.0/16 ─────────────────────────────┐
+                                        │ public subnet                                             │
+ raw CSV ──► S3 raw/ ◄──IAM role───────►│  EC2: Streamlit dashboard + Python pipeline (systemd)    │
+             S3 processed/ dlq/ reports/│      │ TLS :3306 (SG → SG only)                           │
+                                        │ private subnets (no internet route)                       │
+ SSM Parameter Store (passwords) ◄─────►│  RDS MySQL 8.4 · encrypted · not public                  │
+ CloudWatch logs + ERROR alarm ◄────────│                                                           │
+                                        └───────────────────────────────────────────────────────────┘
+pipeline:  read as text → validate/clean (UTC, INR) → DLQ + clean → S3 copies → MySQL (1 transaction)
+           → SQL settlement + sliding-window fraud → dashboard
 ```
 
-Built with **Python + SQL** on **AWS** (S3, RDS MySQL, EC2, VPC, Security Groups, IAM, CloudWatch).
+## Results (live system)
+
+| | |
+|---|---|
+| Sample file (2,053 rows) | 1,923 loaded · 100 rejected (exactly the 100 planted errors) · 30 duplicates |
+| Same file again | **0 inserted** |
+| Fraud test cases from the brief | 6-in-10-min **flagged** · exactly 5 **not** · 6 spread out **not** · 3+3 across a clock boundary **flagged** |
+| Cross-checks | window query = self-join = brute force on random data |
+| Tests | **136** automated tests (unit, live MySQL 8, S3 mocks, dashboard, failure, security) |
+| End-to-end on AWS | 14/14 checks on fresh batches; whole database reconciles (3,513 rows = sum of all runs) |
+| Failure drills | 8/8 on the server (DB down, wrong password, IAM denials, corrupt file…) — nothing half-loaded |
+
+## How to run
+
+```bash
+pip install -r requirements-dev.txt
+python scripts/generate_sample_data.py          # deterministic messy sample + planted fraud cases
+python -m app.pipeline --no-db                   # clean + DLQ files only
+DB_URL=mysql+pymysql://user:pass@host/payrecon python -m app.pipeline      # + MySQL load (MySQL 8 required)
+python -m app.analytics.reports                  # settlement + fraud reports
+streamlit run app/dashboard.py                   # the dashboard
+pytest                                           # tests (live MySQL tests run when DB_URL is set)
+```
+On AWS everything is deployed with one command: `infra/deploy.sh` (see [Deployment](#deployment-ec2)).
 
 ## Project status
 
@@ -28,7 +74,8 @@ Built with **Python + SQL** on **AWS** (S3, RDS MySQL, EC2, VPC, Security Groups
 | 10 End-to-end integration | ✅ (14/14 on AWS for 2 fresh batches + a user upload via the public dashboard) |
 | 11 Failure tests | ✅ (17 failure tests + 8 live drills on AWS; found and fixed 6 gaps) |
 | 12 Security review | ✅ (see `SECURITY.md`) |
-| 13–14 Polish, demo | ⏳ |
+| 13 Polish | ✅ |
+| 14 Demo validation | ⏳ |
 
 ## Project structure
 
@@ -48,7 +95,10 @@ data/
 sql/                schema and analytics SQL                  (Phase 4, 6)
 scripts/
   generate_sample_data.py   deterministic messy sample data with planted fraud cases
-tests/              pytest
+  e2e_check.py              end-to-end check of the deployed system with a fresh batch
+infra/              AWS notes, deploy / run / drill / security-check scripts, systemd + CloudWatch config
+tests/              pytest (map of requirement → test in tests/README.md)
+docs/               demo script, mentor Q&A
 ```
 
 ## Cleaning pipeline (`app/pipeline.py`)
@@ -204,14 +254,6 @@ python -m app.database.schema     # create missing tables (safe to re-run)
 | A5 | If a `txn_ref_no` repeats, the first record is kept; later copies are logged, not loaded |
 | A6 | The 10-minute fraud window includes both ends (failures at 10:00 and 10:10 are in one window) |
 | — | Currency is converted with a fixed dictionary (no external API) |
-
-## Quick start (local)
-
-```bash
-pip install -r requirements-dev.txt
-python scripts/generate_sample_data.py      # writes data/raw/*.csv (same files every time)
-pytest
-```
 
 ## Security
 
