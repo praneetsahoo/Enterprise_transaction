@@ -73,7 +73,10 @@ def main() -> int:
     from app.analytics.reports import run_all
     from app.database.connection import get_engine
     from app.pipeline import run as run_pipeline
+    from app.pipeline import setup_logging
     from app.storage.s3 import download
+
+    setup_logging()          # without this, runs started from here never reach LOG_FILE / CloudWatch
 
     engine = get_engine()
     s3 = boto3.client("s3", region_name=AWS_REGION)
@@ -187,6 +190,7 @@ def main() -> int:
               f"re-running the same file inserts 0 rows (run {again['run_id']})")
 
     failed = [label for ok, label in results if not ok]
+    print("CLOUDWATCH_EXPECT", run_id, again["run_id"])
     print(json.dumps({"run_id": run_id, "rerun_id": again["run_id"], "batch": args.batch.upper(),
                       "fraud_users": {"flag": [a, d], "no_flag": [b, c_]}}))
     print(f"\n{len(results) - len(failed)}/{len(results)} end-to-end checks passed")
