@@ -47,6 +47,7 @@ SETTLEMENT_STATUS = "SUCCESS"
 FRAUD_STATUS = "FAILED"
 FRAUD_MAX_FAILURES = 5            # flag when failures are MORE THAN this number ...
 FRAUD_WINDOW_MINUTES = 10         # ... inside any window of this many minutes
+# A6: both ends of the window are inclusive (failures at 10:00 and 10:10 are in one window).
 
 # Batch size for inserts into MySQL.
 BATCH_SIZE = 1000

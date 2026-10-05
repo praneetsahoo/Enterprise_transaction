@@ -6,7 +6,6 @@ they run inside a transaction that is ROLLED BACK, so they never leave data behi
 from __future__ import annotations
 
 import json
-import os
 import re
 from decimal import Decimal
 
@@ -43,27 +42,7 @@ def test_txn_ref_no_is_primary_key_and_money_is_decimal():
 
 # ---------- live (MySQL 8) ----------
 
-live = pytest.mark.skipif(not (os.getenv("DB_URL") or os.getenv("DB_HOST")),
-                          reason="no database configured (set DB_URL or DB_HOST)")
-
-
-@pytest.fixture(scope="module")
-def engine():
-    from app.database.connection import get_engine
-    from app.database.schema import apply_schema
-
-    eng = get_engine()
-    apply_schema(eng)
-    return eng
-
-
-@pytest.fixture
-def conn(engine):
-    """A connection whose work is always rolled back."""
-    with engine.connect() as c:
-        tx = c.begin()
-        yield c
-        tx.rollback()
+live = pytest.mark.live          # skipped unless a database is configured (see conftest.py)
 
 
 def _txn(ref, amount="100.00", status="SUCCESS"):
