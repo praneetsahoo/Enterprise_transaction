@@ -82,7 +82,8 @@ def run(transactions: Path, rates: Path | None, use_db: bool = True, run_id: str
         clean, rejected, duplicates = clean_transactions(raw_txn)
         counts = {"read": len(raw_txn), "valid": len(clean), "rejected": len(rejected),
                   "duplicate": len(duplicates)}
-        assert counts["read"] == counts["valid"] + counts["rejected"] + counts["duplicate"], counts
+        if counts["read"] != counts["valid"] + counts["rejected"] + counts["duplicate"]:   # not `assert`: -O removes it
+            raise RuntimeError(f"row counts do not reconcile: {counts}")
 
         # 4 local outputs
         processed_dir.mkdir(parents=True, exist_ok=True)

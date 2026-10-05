@@ -12,6 +12,7 @@ import json
 import logging
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # so `app.*` imports work under streamlit
@@ -56,6 +57,30 @@ def query(sql: str, **params) -> pd.DataFrame:
         return pd.DataFrame(result.mappings().all(), columns=list(result.keys()))
 
 
+_FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+
+
+def spreadsheet_safe(df: pd.DataFrame) -> pd.DataFrame:
+    """Neutralise CSV/formula injection in downloads: a text cell starting with = + - @ would run as a
+    formula in Excel. Prefix it with ' — but leave real numbers such as -150.00 alone.
+    (The S3 / database DLQ keeps the exact original text; only dashboard downloads are changed.)"""
+    def fix(v):
+        if isinstance(v, str) and v.startswith(_FORMULA_START):
+            try:
+                float(v.replace(",", ""))
+                return v
+            except ValueError:
+                return "'" + v
+        return v
+    # pandas 3 stores text as dtype 'str', not object: check "not numeric" instead
+    return df.apply(lambda col: col if pd.api.types.is_numeric_dtype(col) else col.map(fix))
+
+
+def md_escape(value) -> str:
+    """Data values shown inside formatted text must not be able to inject markdown (links, images)."""
+    return "".join("\\" + ch if ch in "\\`*_{}[]()<>#+-.!|~" else ch for ch in str(value))
+
+
 def inr(value) -> str:
     return "—" if value is None or pd.isna(value) else f"₹{float(value):,.2f}"
 
@@ -82,6 +107,7 @@ def require_login() -> None:
                 st.session_state["authenticated"] = True
                 st.rerun()
             logging.getLogger("payrecon.dashboard").warning("dashboard: failed sign-in")
+            time.sleep(1)                                               # slows down password guessing
             st.error("Wrong password.")
     st.stop()
 
@@ -202,7 +228,8 @@ with tab_settle:
                  ("gross_inr", "commission_inr", "net_settlement_inr")}
         st.dataframe(settle, hide_index=True, width="stretch",
                      column_config={**money, "commission_pct": st.column_config.NumberColumn(format="%.4f")})
-        st.download_button("Download settlement CSV", settle.to_csv(index=False), "settlement.csv", "text/csv")
+        st.download_button("Download settlement CSV", spreadsheet_safe(settle).to_csv(index=False), "settlement.csv",
+                           "text/csv")
 
 # ---------------------------------------------------------------- Fraud
 
@@ -224,7 +251,7 @@ with tab_fraud:
                      "created_at_utc FROM stg_transactions WHERE user_id = :u ORDER BY created_at_utc", u=user)
         txns["in_peak_window"] = (txns["gateway_status"] == FRAUD_STATUS) & \
             txns["created_at_utc"].between(a["window_start"], a["window_end"])
-        st.write(f"**{user}**: {int(a['peak_failures_in_window'])} failures between "
+        st.write(f"**{md_escape(user)}**: {int(a['peak_failures_in_window'])} failures between "
                  f"{a['window_start']} and {a['window_end']} UTC "
                  f"({int(a['window_span_seconds']) // 60} min {int(a['window_span_seconds']) % 60} s).")
         band = pd.DataFrame({"start": [a["window_start"]], "end": [a["window_end"]]})
@@ -268,7 +295,8 @@ with tab_dlq:
             table = pd.concat([dlq[["source_file", "source_row", "reason"]].reset_index(drop=True), original], axis=1)
             st.caption(f"{len(table)} row(s). Values are exactly as received in the source file.")
             st.dataframe(table, hide_index=True, width="stretch")
-            st.download_button("Download DLQ CSV", table.to_csv(index=False), f"dlq_{run_id}.csv", "text/csv")
+            st.download_button("Download DLQ CSV", spreadsheet_safe(table).to_csv(index=False), f"dlq_{run_id}.csv",
+                               "text/csv")
 
 # ---------------------------------------------------------------- Runs
 
