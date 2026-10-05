@@ -47,6 +47,7 @@ Regional services:
 | `s3:ListBucket` | the payrecon bucket |
 | `s3:GetObject`, `s3:PutObject` | `raw/*`, `processed/*`, `dlq/*` only |
 | `ssm:GetParameter` | `/payrecon/db/*` and `/payrecon/dashboard/*` only |
+| **Deny** `ssm:GetParameter(s/ByPath/History)` | everything outside `/payrecon/*` — needed because the AWS-managed `AmazonSSMManagedInstanceCore` policy allows `ssm:GetParameter` on `*` (found by failure drill D4; verified with a real call — the IAM policy simulator mis-reports this `NotResource` deny) |
 | `logs:CreateLogStream`, `logs:PutLogEvents` | `/payrecon/*` log groups only |
 | `AmazonSSMManagedInstanceCore` | lets us administer the server without SSH |
 

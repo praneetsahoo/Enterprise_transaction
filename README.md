@@ -26,7 +26,8 @@ Built with **Python + SQL** on **AWS** (S3, RDS MySQL, EC2, VPC, Security Groups
 | 8 Streamlit dashboard — the working product | ✅ (6 tabs, upload & run, AppTest) |
 | 9 Deploy on EC2 | ✅ (systemd + CloudWatch agent; alarm fired on a real ERROR; survives reboot) |
 | 10 End-to-end integration | ✅ (14/14 on AWS for 2 fresh batches + a user upload via the public dashboard) |
-| 11–14 Failure tests, security, polish, demo | ⏳ |
+| 11 Failure tests | ✅ (17 failure tests + 8 live drills on AWS; found and fixed 6 gaps) |
+| 12–14 Security review, polish, demo | ⏳ |
 
 ## Project structure
 
@@ -149,6 +150,29 @@ Verified on AWS: batches C and D 14/14 each; batch B uploaded by a person throug
 dashboard matched the predicted counts exactly; all runs found in CloudWatch; database total
 3,513 rows = sum of `rows_inserted` over all successful runs; window and self-join fraud queries
 agree on 8 users (2 planted per batch).
+
+## How it fails (Phase 11)
+
+A run is loaded **completely or not at all** (one database transaction), every failure is logged as
+`ERROR` (→ CloudWatch alarm), and when the database is reachable the run is recorded as `FAILED`
+with its error in `pipeline_runs`.
+
+| Failure | What happens | Proven by |
+|---|---|---|
+| One line with too many / too few fields | only that line → DLQ `MALFORMED_ROW` (exact line kept); rest of file loads | test + drill D7 |
+| Binary / empty / oversized (> 200 MB) / wrong file | clear message, run FAILED, nothing loaded | tests + drill D6 |
+| Database down, wrong host, wrong password | fails before loading, `ERROR … FAILED before start`, exit 1 | tests + drills D1–D3 |
+| Reading another project's secret | IAM `AccessDenied` (explicit deny outside `/payrecon/*`) | drill D4 |
+| Writing to another bucket / S3 error | run FAILED before any database write | test + drill D5 |
+| Input missing in S3 | `ERROR input download from S3 FAILED`, exit 1 | test + drill D8 |
+| Crash in the middle of the load | transaction rolled back: 0 rows from that run; retry loads everything once | drill test (throwaway DB) |
+| Same file loaded twice at the same time | one run inserts, the other inserts 0 — never double counted | drill test (throwaway DB) |
+| Error while recording the failure | the original error is still raised and logged | test |
+
+```bash
+sudo bash /opt/payrecon/app/infra/failure_drills.sh     # on EC2: 8 drills, staging row count must not change
+SCRATCH_DB_URL=mysql+pymysql://root@127.0.0.1:3307/payrecon_drill pytest tests/test_failures.py   # local MySQL 8
+```
 
 ## Data model (`sql/01_schema.sql`)
 
