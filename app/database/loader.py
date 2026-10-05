@@ -1,11 +1,16 @@
-"""Batch writes to MySQL (executemany, BATCH_SIZE rows per round trip, one transaction per batch)."""
+"""Batch writes to MySQL: executemany, BATCH_SIZE rows per round trip.
+
+The load functions take an open Connection: the pipeline runs ALL of a run's writes (rates,
+transactions, DLQ) inside ONE transaction, so a run is loaded completely or not at all.
+start_run / finish_run use their own short transactions so the audit row survives a failed load.
+"""
 from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
 
 import pandas as pd
-from sqlalchemy import Engine, text
+from sqlalchemy import Connection, Engine, text
 
 from app.config import BATCH_SIZE
 
@@ -42,30 +47,28 @@ def _batches(rows: list[dict], size: int):
         yield rows[start:start + size]
 
 
-def _execute_batches(engine: Engine, stmt, rows: list[dict], batch_size: int) -> int:
+def _execute_batches(conn: Connection, stmt, rows: list[dict], batch_size: int) -> int:
     batches = 0
     for batch in _batches(rows, batch_size):
-        with engine.begin() as conn:                    # commit per batch
-            conn.execute(stmt, batch)
+        conn.execute(stmt, batch)                       # no commit here: the caller owns the transaction
         batches += 1
     return batches
 
 
-def load_transactions(engine: Engine, clean: pd.DataFrame, run_id: str, batch_size: int = BATCH_SIZE) -> int:
+def load_transactions(conn: Connection, clean: pd.DataFrame, run_id: str, batch_size: int = BATCH_SIZE) -> int:
     """Insert clean rows; return how many were NEW (already-loaded txn_ref_no are skipped)."""
     rows = [{**{f: r[f] for f in TXN_FIELDS}, "run_id": run_id} for r in _records(clean)]
-    _execute_batches(engine, INSERT_TXN, rows, batch_size)
-    with engine.connect() as conn:                      # new rows carry this run's id
-        return conn.execute(text("SELECT COUNT(*) FROM stg_transactions WHERE run_id = :r"),
-                            {"r": run_id}).scalar_one()
+    _execute_batches(conn, INSERT_TXN, rows, batch_size)
+    return conn.execute(text("SELECT COUNT(*) FROM stg_transactions WHERE run_id = :r"),   # new rows carry this run's id
+                        {"r": run_id}).scalar_one()
 
 
-def load_rates(engine: Engine, rates: pd.DataFrame, batch_size: int = BATCH_SIZE) -> int:
-    _execute_batches(engine, UPSERT_RATE, _records(rates), batch_size)
+def load_rates(conn: Connection, rates: pd.DataFrame, batch_size: int = BATCH_SIZE) -> int:
+    _execute_batches(conn, UPSERT_RATE, _records(rates), batch_size)
     return len(rates)
 
 
-def load_dlq(engine: Engine, rejected: pd.DataFrame, run_id: str, source_file: str,
+def load_dlq(conn: Connection, rejected: pd.DataFrame, run_id: str, source_file: str,
              batch_size: int = BATCH_SIZE) -> int:
     rows = []
     for r in _records(rejected):
@@ -73,7 +76,7 @@ def load_dlq(engine: Engine, rejected: pd.DataFrame, run_id: str, source_file: s
         rows.append({"run_id": run_id, "source_file": source_file, "source_row": int(r["source_row"]),
                      "txn_ref_no": (r.get("txn_ref_no") or "").strip()[:64] or None,
                      "reason": r["reason"][:255], "raw_record": json.dumps(original, ensure_ascii=False)})
-    _execute_batches(engine, INSERT_DLQ, rows, batch_size)
+    _execute_batches(conn, INSERT_DLQ, rows, batch_size)
     return len(rows)
 
 

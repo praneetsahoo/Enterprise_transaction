@@ -11,14 +11,17 @@ Invariant (checked by tests): rows_read == clean + rejected + duplicates. Nothin
 """
 from __future__ import annotations
 
+import csv
+import io
 import re
 from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from app.config import CURRENCY_ALIASES, FX_TO_INR, SOURCE_TIMEZONE, VALID_STATUSES
+from app.config import CURRENCY_ALIASES, FX_TO_INR, MAX_FILE_MB, SOURCE_TIMEZONE, VALID_STATUSES
 
 TXN_COLUMNS = ["txn_ref_no", "user_id", "merchant_id", "amount", "currency",
                "gateway_status", "gateway_response_code", "created_at"]
@@ -108,15 +111,45 @@ def normalize_commission(value: str) -> Decimal | None:
 # --------------------------------------------------------------------------- file level
 
 def read_csv(path, columns: list[str]) -> pd.DataFrame:
-    """Read every value as TEXT, exactly as written (no type guessing, no NaN)."""
-    df = pd.read_csv(path, dtype=str, keep_default_na=False, encoding="utf-8-sig")
-    df.columns = [c.strip().lower() for c in df.columns]
-    missing = [c for c in columns if c not in df.columns]
-    if missing:
-        raise SchemaError(f"{getattr(path, 'name', path)}: missing column(s) {missing}")
-    df = df[columns].copy()
-    df.insert(0, "source_row", range(2, len(df) + 2))       # line number in the file (header = 1)
-    return df
+    """Read every value as TEXT, exactly as written (no type guessing, no NaN).
+
+    File-level problems (not UTF-8 text, empty, too big, required column missing) raise SchemaError:
+    the run fails and nothing is loaded. A single line with the wrong number of fields does NOT
+    fail the file: it gets an extra `raw_line` value (the line re-written as CSV) and the cleaners
+    send it to the DLQ as MALFORMED_ROW.
+    """
+    path = Path(path)
+    size_mb = path.stat().st_size / 1_000_000
+    if size_mb > MAX_FILE_MB:
+        raise SchemaError(f"{path.name}: file is {size_mb:,.0f} MB, limit is {MAX_FILE_MB} MB")
+    try:
+        with path.open(encoding="utf-8-sig", newline="") as f:
+            reader = csv.reader(f)
+            header = next(reader, None)
+            if not header or not any(h.strip() for h in header):
+                raise SchemaError(f"{path.name}: file is empty (no header row)")
+            header = [h.strip().lower() for h in header]
+            missing = [c for c in columns if c not in header]
+            if missing:
+                raise SchemaError(f"{path.name}: missing column(s) {missing}")
+            rows, malformed = [], False
+            for fields in reader:
+                if not fields or not any(x.strip() for x in fields):
+                    continue                                        # blank line
+                record = dict(zip(header, fields + [""] * (len(header) - len(fields))))
+                row = {"source_row": reader.line_num, **{c: record[c] for c in columns}}
+                if len(fields) != len(header):
+                    buf = io.StringIO()
+                    csv.writer(buf, lineterminator="").writerow(fields)
+                    row["raw_line"] = buf.getvalue()
+                    malformed = True
+                rows.append(row)
+    except UnicodeDecodeError as exc:
+        raise SchemaError(f"{path.name}: not a UTF-8 text/CSV file ({exc.reason} at byte {exc.start})") from None
+    except csv.Error as exc:
+        raise SchemaError(f"{path.name}: unreadable CSV ({exc})") from None
+    out_cols = ["source_row", *columns] + (["raw_line"] if malformed else [])
+    return pd.DataFrame(rows, columns=out_cols, dtype=object).fillna("")
 
 
 def validate_transaction(row: dict) -> tuple[dict | None, list[str]]:
@@ -169,6 +202,9 @@ def clean_transactions(raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, p
     clean, rejected, duplicates = [], [], []
     accepted: dict[str, dict] = {}                       # txn_ref_no -> original raw row
     for row in raw.to_dict("records"):
+        if row.get("raw_line"):                          # wrong number of fields: never guess
+            rejected.append({**row, "reason": "MALFORMED_ROW"})
+            continue
         record, reasons = validate_transaction(row)
         if reasons:
             rejected.append({**row, "reason": "|".join(reasons)})
@@ -180,7 +216,7 @@ def clean_transactions(raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, p
         else:
             accepted[record["txn_ref_no"]] = row
             clean.append({"source_row": row["source_row"], **record})
-    dlq_cols = ["source_row", *TXN_COLUMNS, "reason"]
+    dlq_cols = ["source_row", *TXN_COLUMNS, "reason"] + (["raw_line"] if "raw_line" in raw.columns else [])
     # dtype=object keeps Python values as they are (None stays None, Decimal stays Decimal);
     # pandas 3 would otherwise turn None into NaN in text columns.
     clean_cols = ["source_row", "txn_ref_no", "user_id", "merchant_id", "amount_original",
@@ -195,6 +231,9 @@ def clean_rates(raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Merchant rates -> (clean, rejected). Percentages are converted to fractions (A2)."""
     clean, rejected, seen = [], [], set()
     for row in raw.to_dict("records"):
+        if row.get("raw_line"):
+            rejected.append({**row, "reason": "MALFORMED_ROW"})
+            continue
         merchant = row["merchant_id"].strip()
         rate = normalize_commission(row["commission_pct"])
         reasons = ([] if merchant else ["MISSING_MERCHANT_ID"]) + ([] if rate is not None else ["BAD_COMMISSION"])
@@ -207,4 +246,5 @@ def clean_rates(raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
         clean.append({"merchant_id": merchant, "tier": row["tier"].strip().upper() or None,
                       "commission_pct": rate})
     return (pd.DataFrame(clean, columns=["merchant_id", "tier", "commission_pct"], dtype=object),
-            pd.DataFrame(rejected, columns=["source_row", *RATE_COLUMNS, "reason"], dtype=object))
+            pd.DataFrame(rejected, columns=["source_row", *RATE_COLUMNS, "reason"]
+                         + (["raw_line"] if "raw_line" in raw.columns else []), dtype=object))

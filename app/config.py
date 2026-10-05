@@ -52,6 +52,9 @@ FRAUD_WINDOW_MINUTES = 10         # ... inside any window of this many minutes
 # Batch size for inserts into MySQL.
 BATCH_SIZE = 1000
 
+# Largest input file accepted (the dashboard upload limit is 50 MB, set in .streamlit/config.toml).
+MAX_FILE_MB = 200
+
 # ---------------------------------------------------------------------------
 # Local folders (used for development and as a local copy of the DLQ)
 # ---------------------------------------------------------------------------

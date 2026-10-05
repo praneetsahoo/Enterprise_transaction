@@ -58,13 +58,19 @@ def run(transactions: Path, rates: Path | None, use_db: bool = True, run_id: str
     log.info("run %s started: transactions=%s rates=%s", run_id, transactions.name,
              rates.name if rates else "(keep rates already loaded)")
 
+    run_recorded = False
     if use_db:
         from app.database import loader
         from app.database.connection import get_engine
         from app.database.schema import apply_schema
-        engine = engine or get_engine()
-        apply_schema(engine)
-        loader.start_run(engine, run_id, transactions.name, None)
+        try:
+            engine = engine or get_engine()
+            apply_schema(engine)
+            loader.start_run(engine, run_id, transactions.name, None)
+            run_recorded = True
+        except Exception as exc:                # e.g. database unreachable / bad password / SSM denied
+            log.error("run %s FAILED before start (database): %s: %s", run_id, type(exc).__name__, exc)
+            raise
 
     try:
         # 1-3 read, validate, clean
@@ -94,19 +100,23 @@ def run(transactions: Path, rates: Path | None, use_db: bool = True, run_id: str
             s3_keys["processed"] = upload(s3_bucket, processed, "processed", run_id)
             s3_keys["dlq"] = [upload(s3_bucket, p, "dlq", run_id) for p in (dlq_txn, dlq_rate) if p]
 
-        # 6 MySQL
+        # 6 MySQL — ONE transaction: the whole run is loaded, or nothing is
         if use_db:
-            if len(good_rates):
-                loader.load_rates(engine, good_rates)
-            counts["inserted"] = loader.load_transactions(engine, clean, run_id)
-            loader.load_dlq(engine, dlq_all, run_id, transactions.name)
-            if len(bad_rates):
-                loader.load_dlq(engine, bad_rates, run_id, rates.name)
+            with engine.begin() as conn:
+                if len(good_rates):
+                    loader.load_rates(conn, good_rates)
+                counts["inserted"] = loader.load_transactions(conn, clean, run_id)
+                loader.load_dlq(conn, dlq_all, run_id, transactions.name)
+                if len(bad_rates):
+                    loader.load_dlq(conn, bad_rates, run_id, rates.name)
             loader.finish_run(engine, run_id, "SUCCESS", counts)
     except Exception as exc:
         log.error("run %s FAILED: %s: %s", run_id, type(exc).__name__, exc)
-        if use_db:
-            loader.finish_run(engine, run_id, "FAILED", error=f"{type(exc).__name__}: {exc}")
+        if run_recorded:
+            try:
+                loader.finish_run(engine, run_id, "FAILED", error=f"{type(exc).__name__}: {exc}")
+            except Exception as audit_exc:      # never hide the original error
+                log.error("run %s: could not record FAILED status: %s", run_id, type(audit_exc).__name__)
         raise
 
     reasons = dlq_all["reason"].str.split("|").explode().value_counts().to_dict() if len(dlq_all) else {}
@@ -129,14 +139,18 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.s3_transactions or args.s3_rates:
         from app.storage.s3 import download
-        if args.s3_transactions:
-            args.transactions = download(S3_BUCKET, args.s3_transactions, RAW_DIR / "from_s3")
-        if args.s3_rates:
-            args.rates = download(S3_BUCKET, args.s3_rates, RAW_DIR / "from_s3")
+        try:
+            if args.s3_transactions:
+                args.transactions = download(S3_BUCKET, args.s3_transactions, RAW_DIR / "from_s3")
+            if args.s3_rates:
+                args.rates = download(S3_BUCKET, args.s3_rates, RAW_DIR / "from_s3")
+        except Exception as exc:
+            log.error("input download from S3 FAILED: %s: %s", type(exc).__name__, exc)
+            return 1
     try:
         summary = run(args.transactions, args.rates, use_db=not args.no_db)
     except Exception:
-        return 1
+        return 1                                # already logged as ERROR inside run()
     print(json.dumps(summary, indent=2, default=str))
     return 0
 
