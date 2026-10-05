@@ -50,7 +50,7 @@ systemctl daemon-reload
 systemctl enable -q payrecon-dashboard
 systemctl restart payrecon-dashboard
 for i in $(seq 1 30); do
-  curl -fsS -o /dev/null http://127.0.0.1/_stcore/health && break
+  curl -fsS -o /dev/null http://127.0.0.1/_stcore/health 2>/dev/null && break
   sleep 1
 done
 curl -fsS http://127.0.0.1/_stcore/health >/dev/null && echo "[deploy] dashboard healthy on port 80" \

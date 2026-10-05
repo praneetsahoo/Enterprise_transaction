@@ -12,14 +12,21 @@ APP = str(Path(__file__).resolve().parents[1] / "app" / "dashboard.py")
 
 
 @pytest.fixture(autouse=True)
-def fresh_streamlit_cache():
-    """st.cache_data is process-wide; clear it so one test's results never leak into another."""
+def fresh_streamlit_cache(monkeypatch):
+    """st.cache_data is process-wide; clear it so one test's results never leak into another.
+    Also run without the login gate unless a test sets a password itself (the server's env has one)."""
     import streamlit as st
 
+    from app.config import dashboard_password
+
+    monkeypatch.delenv("DASHBOARD_PASSWORD", raising=False)
+    monkeypatch.delenv("DASHBOARD_PASSWORD_PARAM", raising=False)
+    dashboard_password.cache_clear()
     st.cache_data.clear()
     st.cache_resource.clear()
     yield
     st.cache_data.clear()
+    dashboard_password.cache_clear()
 
 
 TABS = ["Overview", "Upload & run", "Settlement", "Fraud alerts", "Dead-letter queue", "Pipeline runs"]
