@@ -185,3 +185,9 @@ def test_rates_file_is_optional_existing_rates_are_kept(sample, tmp_path):
                            dlq_dir=tmp_path / "d", s3_bucket="")
     m["load_rates"].assert_not_called()
     assert out["rates_valid"] == 0 and m["finish_run"].call_args.args[2] == "SUCCESS"
+
+
+def test_tests_never_log_to_the_production_log_file():
+    import os
+
+    assert "LOG_FILE" not in os.environ          # removed by conftest before the app is imported

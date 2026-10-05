@@ -6,6 +6,10 @@ import os
 
 import pytest
 
+# Tests must never write to the production log file: it is shipped to CloudWatch, where an
+# ERROR line from a failure test would raise a false alarm. Remove it before app code is imported.
+os.environ.pop("LOG_FILE", None)
+
 HAS_DB = bool(os.getenv("DB_URL") or os.getenv("DB_HOST"))
 
 

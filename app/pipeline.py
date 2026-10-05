@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -35,8 +36,9 @@ log = logging.getLogger("payrecon.pipeline")
 
 def setup_logging() -> None:
     handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
-    if LOG_FILE:
-        handlers.append(logging.FileHandler(LOG_FILE))
+    log_file = os.getenv("LOG_FILE", LOG_FILE)          # read at call time
+    if log_file:
+        handlers.append(logging.FileHandler(log_file))
     logging.basicConfig(level=logging.INFO, handlers=handlers, force=True,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
