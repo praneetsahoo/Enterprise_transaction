@@ -4,6 +4,7 @@ RDS creates the `payrecon` database and an admin user. The pipeline must NOT use
 this script creates `payrecon_app`, which:
   * can only touch the `payrecon` database (not the whole server),
   * must connect over TLS (REQUIRE SSL).
+It also sets REQUIRE SSL on the admin user itself (found in the Phase 12 security review).
 Both passwords are read from SSM Parameter Store with the EC2 IAM role and never printed.
 
     DB_HOST=<rds endpoint> python infra/bootstrap_db.py
@@ -37,6 +38,8 @@ def main() -> int:
         cur.execute("CREATE USER IF NOT EXISTS %s@'%%' IDENTIFIED BY %s REQUIRE SSL", (APP_USER, app_password))
         cur.execute("ALTER USER %s@'%%' IDENTIFIED BY %s REQUIRE SSL", (APP_USER, app_password))
         cur.execute(f"GRANT {PRIVILEGES} ON payrecon.* TO %s@'%%'", (APP_USER,))
+        # the admin too must use TLS (RDS default parameter group has require_secure_transport = 0)
+        cur.execute("ALTER USER CURRENT_USER() REQUIRE SSL")
         cur.execute("SHOW GRANTS FOR %s@'%%'", (APP_USER,))
         grants = [row[0] for row in cur.fetchall()]
     conn.close()

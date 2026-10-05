@@ -44,7 +44,10 @@ rpm -q amazon-cloudwatch-agent >/dev/null 2>&1 || dnf install -y -q amazon-cloud
   -c "file:$APP/app/infra/cloudwatch-agent.json" >/dev/null
 echo "[deploy] cloudwatch agent: $(/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a status | grep -o '"status": "[a-z]*"' | head -1)"
 
-# 6. dashboard service
+# 6. no SSH daemon: administration is via SSM only (port 22 is also closed in the security group)
+systemctl disable --now sshd >/dev/null 2>&1 || true
+
+# 7. dashboard service
 install -m 644 "$APP/app/infra/systemd/payrecon-dashboard.service" /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable -q payrecon-dashboard
