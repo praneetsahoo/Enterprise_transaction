@@ -1,6 +1,8 @@
 # PayRecon — Enterprise Transaction Reconciliation & Fraud Telemetry
 
-Batch pipeline for UPI / merchant-settlement transaction dumps:
+Batch pipeline **and Streamlit dashboard** for UPI / merchant-settlement transaction dumps.
+Upload a raw dump in the dashboard and see the cleaned result, rejected rows, merchant
+settlement and fraud alerts:
 
 ```text
 RAW CSV → S3 → Python cleaning (UTC, INR, validation) → DLQ + clean data → RDS MySQL
@@ -21,7 +23,7 @@ Built with **Python + SQL** on **AWS** (S3, RDS MySQL, EC2, VPC, Security Groups
 | 5 Python preprocessing + DLQ + batch load | ✅ (75 tests; live run on EC2 → S3 + RDS) |
 | 6 SQL settlement + sliding-window fraud | ✅ (95/95 tests on RDS) |
 | 7 pytest suite | ✅ (109 tests on EC2/RDS — map in `tests/README.md`) |
-| 8 Streamlit dashboard (optional) | ✅ (6 tabs, upload & run, AppTest) |
+| 8 Streamlit dashboard — the working product | ✅ (6 tabs, upload & run, AppTest) |
 | 9 Deploy on EC2 | ✅ (systemd + CloudWatch agent; alarm fired on a real ERROR; survives reboot) |
 | 10–14 Integration, failure tests, security, polish, demo | ⏳ |
 
@@ -88,7 +90,7 @@ Verified on the sample data: flagged **U9001** (6 in 8 min) and **U9004** (6 acr
 boundary); not flagged **U9002** (exactly 5) and **U9003** (6 over 50 min). For comparison, fixed
 10-minute buckets would miss U9004, and a daily `GROUP BY` would wrongly flag U9003.
 
-## Dashboard (`app/dashboard.py`)
+## Dashboard — the working product (`app/dashboard.py`)
 
 ```bash
 streamlit run app/dashboard.py
